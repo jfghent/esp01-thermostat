@@ -22,7 +22,7 @@ Other notes:
 * **mcp9808.lua** - ported library from Owain Martin adapted for use in
 the version of lua that is used by Node MCU (see below) (also, sorry
 Owain, I can't find where I originally downloaded this else I'd link it)
-* **init.l--station_cfg.pwd="ropeladder"ua** - file that launches
+* **init.lua** - file that launches
 main.lua (no brainer)
 
 * **nodemcu-master-12-modules-2019-09-01-01-53-09-float.bin** - the
