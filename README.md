@@ -45,5 +45,5 @@ Other notes:
 Here is the command used to upload the firmware from a linux command
 line using esptool.py:
 
->esptool.py --port /dev/ttyUSB0 --baud 115200 -->trace --chip esp8266 write_flash --erase-all -->flash_freq 26m --flash_mode dout --flash_size 1MB --no-compress 0x00000 nodemcu-master-12-modules-2019-09-01-01-53-09-float.bin
+>esptool.py --port /dev/ttyUSB0 --baud 115200 --trace --chip esp8266 write_flash --erase-all --flash_freq 26m --flash_mode dout --flash_size 1MB --no-compress 0x00000 nodemcu-master-12-modules-2019-09-01-01-53-09-float.bin
 
