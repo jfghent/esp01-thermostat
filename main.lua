@@ -7,6 +7,10 @@ fan_state = 0
 fan_indicator = " "
 set_temp = 70 --default, safe temp
 therm_mode = -1 --0=cool, 1=heat, -1=not set
+cool_on_offset = 1 --added to set_temp to prevent over-cycling
+cool_off_offset = 0.5 --subtracted from set_temp to prevent over-cycling
+heat_on_offset = 1 --subtracted from set_temp to prevent over-cycling
+heat_off_offset = 0.5 --added to set_temp to prevent over-cycling
 tempF = 0
 tempC = 0
 run_delay = true
@@ -52,13 +56,13 @@ function updateTemp()
     tempF = tempC * 9 / 5 + 32
 
     if therm_mode == 0 then --cooling
-        if tempF > set_temp and not run_delay then
+        if tempF > (set_temp + cool_on_offset) and not run_delay then
             thermostat_state = "Cool ON"
             output_register_curr = bit.bor(output_register_curr,heat_cool_off)
             output_register_curr = bit.band(output_register_curr,cool_on)
             write_pcf8574(output_register_curr)
             running = true
-        elseif tempF < set_temp and not run_delay then
+        elseif tempF <= (set_temp - cool_off_offset) and not run_delay then
             thermostat_state = "Cool"
             --write_pcf8574(0xFE)
             print("output_register_curr: " .. output_register_curr)
@@ -71,13 +75,13 @@ function updateTemp()
             running = false
         end
     elseif therm_mode == 1 then --heating
-        if tempF < set_temp and not run_delay then
+        if tempF < (set_temp - heat_on_offset) and not run_delay then
             thermostat_state = "Heat ON"
             output_register_curr = bit.bor(output_register_curr,heat_cool_off)
             output_register_curr = bit.band(output_register_curr,heat_on)
             write_pcf8574(output_register_curr)
             running = true
-         elseif tempF >= set_temp and not run_delay then
+         elseif tempF >= (set_temp + heat_off_offset) and not run_delay then
             thermostat_state = "Heat"
             output_register_curr = bit.bor(output_register_curr,heat_cool_off)
             write_pcf8574(output_register_curr)
