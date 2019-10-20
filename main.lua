@@ -7,10 +7,10 @@ fan_state = 0
 fan_indicator = " "
 set_temp = 70 --default, safe temp
 therm_mode = -1 --0=cool, 1=heat, -1=not set
-cool_on_offset = 1 --added to set_temp to prevent over-cycling
-cool_off_offset = 0.5 --subtracted from set_temp to prevent over-cycling
-heat_on_offset = 1 --subtracted from set_temp to prevent over-cycling
-heat_off_offset = 0.5 --added to set_temp to prevent over-cycling
+cool_on_offset = 2.0 
+cool_off_offset = 2.0 
+heat_on_offset = 2.0 
+heat_off_offset = 2.0 
 tempF = 0
 tempC = 0
 run_delay = true
@@ -20,25 +20,20 @@ output_register_curr = 0x00 --all off
 fan_on = 0xBF --bit 6  --0x04 --bit 2 0x08 --bit 3, 0x10 --bit 4
 heat_on = 0xDF --bit 5    ----0x02 -- bit 1
 cool_on = 0xEF --bit 4    ----0x01 -- bit 0
---heat_cool_off = 0xFC --bit.band(0xFF,bit.bnot(bit.band(heat_on,cool_on)))
 heat_cool_off = 0x70 --bit.bxor(0xFF,bit.band(heat_on,cool_on))
 
 function initI2C()
    local sda = 3 -- GPIO2
    local scl = 4 -- GPIO0
-   --local sla = 0x3c
-   i2c.setup(0, sda, scl, i2c.SLOW)
+    i2c.setup(0, sda, scl, i2c.SLOW)
 end
 
 function initDisplay()
-   --print("initializing display")
    
    disp = u8g2.ssd1306_i2c_128x64_noname(0,0x3c)
    disp:setFont(u8g2.font_6x10_tf)  
    disp:setContrast(254)
-   --disp:setColorIndex(1)   
-   --disp:setRot180() 
-   --print("display initialized")
+
 end
 
 function start_run_delay()
@@ -114,15 +109,15 @@ function update_display()
 end
 
 function read_pcf8574(dev_addr)
-     --i2c.start(0)
+     
      i2c.address(0, 0x20 , i2c.RECEIVER)
-     bdata = i2c.read(busid,1)  -- Reads one byte
-     --i2c.stop(busid)
+     bdata = i2c.read(busid,1)  
+     
      return bdata
 end
 
 function write_pcf8574(value)
-     --print("Writing Output: " .. value)
+     
      i2c.start(0)
      i2c.address(0, 0x20, i2c.TRANSMITTER)
      i2c.write(0,value)
@@ -141,15 +136,13 @@ station_cfg={}
 station_cfg.ssid="TreeHouse"
 
 file.open("pw.cfg","r")
-station_cfg.pwd=file.read(file.stat("pw.cfg").size-1) -- need the -1 otherwise it returns an EOL character in addition to the text
+station_cfg.pwd=file.read(file.stat("pw.cfg").size-1) 
 file.close()
---station_cfg.pwd="ropeladder"
-print("WiFi Password: " .. station_cfg.pwd)
+print("pw: " .. station_cfg.pwd)
 station_cfg.auto=true
 station_cfg.save=false
-station_cfg.connected_cb=function() end --print("Wifi connected") end
+station_cfg.connected_cb=function() end 
 station_cfg.got_ip_cb=function() 
-    --print("IP assigned")
     wifi_state = "i"
     update_display()
     mqtt_connect()
@@ -219,6 +212,14 @@ m:on("message", function(client,topic,data)
             output_register_curr = bit.band(output_register_curr,bit.bnot(fan_on))
             write_pcf8574(output_register_curr)
         end
+    elseif topic == "home/command/climate/zone3/cool_on_swing" then
+        cool_on_offset = tonumber(data) --added to set_temp to prevent over-cycling
+    elseif topic == "home/command/climate/zone3/cool_off_swing" then
+        cool_off_offset = tonumber(data) --subtracted from set_temp to prevent over-cycling
+    elseif topic == "home/command/climate/zone3/heat_on_swing" then
+        heat_on_offset = tonumber(data) --subtracted from set_temp to prevent over-cycling
+    elseif topic == "home/command/climate/zone3/heat_off_swing" then
+        heat_off_offset = tonumber(data) --added to set_temp to prevent over-cycling    
     end
     config_save()
 end)
@@ -237,6 +238,27 @@ function config_save()
     file.write(tostring(set_temp).." ")
     file.flush()
     file.close()
+
+    file.open("swing_cool_on.cfg","w+")
+    file.write(tostring(cool_on_offset).." ")
+    file.flush()
+    file.close()
+
+    file.open("swing_cool_off.cfg","w+")
+    file.write(tostring(cool_off_offset).." ")
+    file.flush()
+    file.close()
+
+    file.open("swing_heat_on.cfg","w+")
+    file.write(tostring(heat_on_offset).." ")
+    file.flush()
+    file.close()
+
+    file.open("swing_heat_off.cfg","w+")
+    file.write(tostring(heat_off_offset).." ")
+    file.flush()
+    file.close()
+    
 end
 
 function config_load()
@@ -248,6 +270,22 @@ function config_load()
         therm_mode = tonumber(file.readline())
         file.close()
     end
+    if file.open("swing_cool_on.cfg","r") then
+        cool_on_offset = tonumber(file.readline())
+        file.close()
+    end
+    if file.open("swing_cool_off.cfg","r") then
+        cool_off_offset = tonumber(file.readline())
+        file.close()
+    end
+    if file.open("swing_heat_on.cfg","r") then
+        heat_on_offset = tonumber(file.readline())
+        file.close()
+    end
+    if file.open("swing_heat_off.cfg","r") then
+        heat_off_offset = tonumber(file.readline())
+        file.close()
+    end
 end
 
 config_load()
@@ -257,13 +295,11 @@ start_run_delay()
 tmr.create():alarm(4000, tmr.ALARM_AUTO, function()
   update_display()
   updateTemp()
-  --m:publish("home/state/climate/zone3/ambient_temp",string.format("%02d",tempF),0,0)
-  --m:publish("home/state/climate/zone3/fan_state",fan_state,0,0)
-  --m:publish("home/state/climate/zone3/cool_heat_mode",tostring(therm_mode),0,0)
-  --m:publish("home/state/climate/zone3/run_state",thermostat_state,0,0)
-  --m:publish("home/state/climate/zone3/set_temp",set_temp,0,0)
-  if mqtt_connected then 
-    m:publish("home/state/climate/zone3/all",string.format("%02d",tempF).."|"..set_temp.."|"..thermostat_state.."|"..tostring(therm_mode).."|"..tostring(fan_state), 0,0)
+  if mqtt_connected then
+    data_string = string.format("%.1f",tempF)
+    data_string = data_string.."|"..set_temp.."|"..thermostat_state.."|"..tostring(therm_mode).."|"..tostring(fan_state)
+    data_string = data_string.."|"..tostring(cool_on_offset).."|"..tostring(cool_off_offset).."|"..tostring(heat_on_offset).."|"..tostring(heat_off_offset)
+    m:publish("home/state/climate/zone3/all",data_string,0,0)
   else
     mqtt_connect()
   end    
