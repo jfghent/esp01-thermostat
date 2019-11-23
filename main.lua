@@ -1,4 +1,12 @@
 require("mcp9808")
+require("param")
+
+zone = 3
+mqtt_host = "192.168.1.46"
+mqtt_port = 1885
+
+mqtt_cmd_path = "home/command/climate/zone"..zone
+mqtt_state_path = "home/state/climate/zone"..zone
 
 wifi_state = "X"
 mqtt_connected = false
@@ -32,7 +40,9 @@ function initDisplay()
    
    disp = u8g2.ssd1306_i2c_128x64_noname(0,0x3c)
    disp:setFont(u8g2.font_6x10_tf)  
-   disp:setContrast(254)
+   local brt = load_param("bright")
+   if not brt then brt = 254
+   disp:setContrast(brt)
 
 end
 
@@ -41,49 +51,65 @@ function start_run_delay()
     tmr.create():alarm(60000, tmr.ALARM_SINGLE, function()
         run_delay = false
     end)
-    thermostat_state = thermostat_state .." DLY"
+    thermostat_state = "DLY"
 end
+
+function start_cooling()
+    thermostat_state = "Cool ON"
+    output_register_curr = bit.bor(output_register_curr,heat_cool_off)
+    output_register_curr = bit.band(output_register_curr,cool_on)
+    write_pcf8574(output_register_curr)
+    running = true
+end
+
+function stop_cooling()
+    thermostat_state = "Cool"
+    output_register_curr = bit.bor(output_register_curr,heat_cool_off)
+    write_pcf8574(output_register_curr)
+    if running then
+        start_run_delay()
+    end
+    running = false
+end
+
+function start_heating()
+    thermostat_state = "Heat ON"
+    output_register_curr = bit.bor(output_register_curr,heat_cool_off)
+    output_register_curr = bit.band(output_register_curr,heat_on)
+    write_pcf8574(output_register_curr)
+    running = true
+end
+
+function stop_heating()
+    thermostat_state = "Heat"
+    output_register_curr = bit.bor(output_register_curr,heat_cool_off)
+    write_pcf8574(output_register_curr)
+    if running then
+        start_run_delay()
+    end
+    running = false
+end
+
 
 function updateTemp()
     --read temp
     tempC = mcp9808.read_temperature()
     --convert to F
     tempF = tempC * 9 / 5 + 32
-
+    
+    if run_delay then return
+    
     if therm_mode == 0 then --cooling
-        if tempF > (set_temp + cool_on_offset) and not run_delay then
-            thermostat_state = "Cool ON"
-            output_register_curr = bit.bor(output_register_curr,heat_cool_off)
-            output_register_curr = bit.band(output_register_curr,cool_on)
-            write_pcf8574(output_register_curr)
-            running = true
-        elseif tempF <= (set_temp - cool_off_offset) and not run_delay then
-            thermostat_state = "Cool"
-            --write_pcf8574(0xFE)
-            print("output_register_curr: " .. output_register_curr)
-            print("heat_cool_off: " .. heat_cool_off)
-            output_register_curr = bit.bor(output_register_curr,heat_cool_off)
-            write_pcf8574(output_register_curr)
-            if running then
-                start_run_delay()
-            end
-            running = false
+        if tempF > (set_temp + cool_on_offset) then
+            start_cooling()
+        elseif tempF <= (set_temp - cool_off_offset) then
+            stop_cooling()
         end
     elseif therm_mode == 1 then --heating
-        if tempF < (set_temp - heat_on_offset) and not run_delay then
-            thermostat_state = "Heat ON"
-            output_register_curr = bit.bor(output_register_curr,heat_cool_off)
-            output_register_curr = bit.band(output_register_curr,heat_on)
-            write_pcf8574(output_register_curr)
-            running = true
-         elseif tempF >= (set_temp + heat_off_offset) and not run_delay then
-            thermostat_state = "Heat"
-            output_register_curr = bit.bor(output_register_curr,heat_cool_off)
-            write_pcf8574(output_register_curr)
-            if running then
-                start_run_delay()
-            end
-            running = false
+        if tempF < (set_temp - heat_on_offset) then
+            start_heating()
+         elseif tempF >= (set_temp + heat_off_offset) then
+            stop_heating()
         end
     else
         thermostat_state = "Wait"
@@ -133,11 +159,12 @@ write_pcf8574(0xFF)
 wifi.sta.disconnect()
 
 station_cfg={}
-station_cfg.ssid="TreeHouse"
-
-file.open("pw.cfg","r")
-station_cfg.pwd=file.read(file.stat("pw.cfg").size-1) 
-file.close()
+--station_cfg.ssid="TreeHouse"
+station_cfg.ssid = load_param("ssid")
+station_cfg.pwd = load_param("pwd")
+--file.open("pw.cfg","r")
+--station_cfg.pwd=file.read(file.stat("pw.cfg").size-1) 
+--file.close()
 print("pw: " .. station_cfg.pwd)
 station_cfg.auto=true
 station_cfg.save=false
@@ -151,16 +178,16 @@ station_cfg.got_ip_cb=function()
 function mqtt_connect()
     if mqtt_connected then return end
     m:close()
-    if(m:connect("192.168.1.46",1885,
+    if(m:connect(mqtt_host,mqtt_port,
         function(client) 
             print("mqtt connected")
             mqtt_connected = true
-            client:subscribe("home/command/climate/zone3/#", 0, 
+            client:subscribe(mqtt_cmd_path.."/#", 0, 
                 function(client) 
                     wifi_state = "W"
                     print("subscribe success") 
             end)
-            client:publish("home/climate/zone3/status/state","online",0,0)
+            client:publish(mqtt_state_path.."/state","online",0,0)
         end, 
         function(client, reason) 
             print("connection failed")
@@ -176,7 +203,7 @@ wifi.setmode(wifi.STATION)
 
 wifi.sta.config(station_cfg)
 
-m = mqtt.Client("ThermostatZone3",120)
+m = mqtt.Client("ThermostatZone"..zone,120)
 
 m:on("connect", function(client) print("mqtt connected_") end)
 m:on("offline", function(client) wifi_state = "i" print("mqtt offline") mqtt_connected = false end)
@@ -188,9 +215,10 @@ m:on("message", function(client,topic,data)
         print(data)
     end
     
-    if topic=="home/command/climate/zone3/set_temp" then
+    if topic==mqtt_cmd_path.."/set_temp" then
         set_temp = tonumber(data)
-    elseif topic=="home/command/climate/zone3/set_mode" then
+        save_param("temp",set_temp)
+    elseif topic==mqtt_cmd_path.."/set_mode" then
         if data == "cool" then
             therm_mode = 0
         elseif data == "heat" then
@@ -198,9 +226,11 @@ m:on("message", function(client,topic,data)
         else
             therm_mode = -1
         end
-    elseif topic=="home/command/climate/zone3/display_brightness" then
+        save_param("mode",therm_mode)
+    elseif topic==mqtt_cmd_path.."/display_brightness" then
         disp:setContrast(tonumber(data))
-    elseif topic=="home/command/climate/zone3/fan" then
+        save_param("bright",data)
+    elseif topic==mqtt_cmd_path.."/fan" then
         if data == "on" then
             fan_state = 1
             fan_indicator = "F"
@@ -212,80 +242,98 @@ m:on("message", function(client,topic,data)
             output_register_curr = bit.band(output_register_curr,bit.bnot(fan_on))
             write_pcf8574(output_register_curr)
         end
-    elseif topic == "home/command/climate/zone3/cool_on_swing" then
+    elseif topic == mqtt_cmd_path.."/cool_on_swing" then
         cool_on_offset = tonumber(data) --added to set_temp to prevent over-cycling
-    elseif topic == "home/command/climate/zone3/cool_off_swing" then
+        save_param("swing_cool_on",cool_on_offset)
+    elseif topic == mqtt_cmd_path.."/cool_off_swing" then
         cool_off_offset = tonumber(data) --subtracted from set_temp to prevent over-cycling
-    elseif topic == "home/command/climate/zone3/heat_on_swing" then
+        save_param("swing_cool_off",cool_off_offset)
+    elseif topic == mqtt_cmd_path.."/heat_on_swing" then
         heat_on_offset = tonumber(data) --subtracted from set_temp to prevent over-cycling
-    elseif topic == "home/command/climate/zone3/heat_off_swing" then
+        save_param("swing_heat_on",heat_on_offset)
+    elseif topic == mqtt_cmd_path.."/heat_off_swing" then
         heat_off_offset = tonumber(data) --added to set_temp to prevent over-cycling    
+        save_param("swing_heat_off",heat_off_offset)
     end
-    config_save()
+    --config_save()
 end)
 
-function config_save()
-    print("Saving config")
-    print("   therm_mode: " .. therm_mode)
-    print("   set_temp: " .. set_temp)
+--function config_save()
+    --print("Saving config")
+    --print("   therm_mode: " .. therm_mode)
+    --print("   set_temp: " .. set_temp)
+
+    --save_param("mode",therm_mode)
+    --save_param("temp",set_temp)
+    --save_param("swing_cool_on",cool_on_offset)
+    --save_param("swing_cool_off",cool_off_offset)
+    --save_param("swing_heat_on",heat_on_offset)
+    --save_param("swing_heat_off",heat_off_offset)
     
-    file.open('mode.cfg',"w+")
-    file.write(tostring(therm_mode).." ")
-    file.flush()
-    file.close()
+    --file.open('mode.cfg',"w+")
+    --file.write(tostring(therm_mode).." ")
+    --file.flush()
+    --file.close()
     
-    file.open("temp.cfg","w+")
-    file.write(tostring(set_temp).." ")
-    file.flush()
-    file.close()
+    --file.open("temp.cfg","w+")
+    --file.write(tostring(set_temp).." ")
+    --file.flush()
+    --file.close()
 
-    file.open("swing_cool_on.cfg","w+")
-    file.write(tostring(cool_on_offset).." ")
-    file.flush()
-    file.close()
+    --file.open("swing_cool_on.cfg","w+")
+    --file.write(tostring(cool_on_offset).." ")
+    --file.flush()
+    --file.close()
 
-    file.open("swing_cool_off.cfg","w+")
-    file.write(tostring(cool_off_offset).." ")
-    file.flush()
-    file.close()
+    --file.open("swing_cool_off.cfg","w+")
+    --file.write(tostring(cool_off_offset).." ")
+    --file.flush()
+    --file.close()
 
-    file.open("swing_heat_on.cfg","w+")
-    file.write(tostring(heat_on_offset).." ")
-    file.flush()
-    file.close()
+    --file.open("swing_heat_on.cfg","w+")
+    --file.write(tostring(heat_on_offset).." ")
+    --file.flush()
+    --file.close()
 
-    file.open("swing_heat_off.cfg","w+")
-    file.write(tostring(heat_off_offset).." ")
-    file.flush()
-    file.close()
+    --file.open("swing_heat_off.cfg","w+")
+    --file.write(tostring(heat_off_offset).." ")
+    --file.flush()
+    --file.close()
     
-end
+--end
 
 function config_load()
-    if file.open("temp.cfg","r") then 
-        set_temp = tonumber(file.readline())
-        file.close()
-    end
-    if file.open("mode.cfg","r") then
-        therm_mode = tonumber(file.readline())
-        file.close()
-    end
-    if file.open("swing_cool_on.cfg","r") then
-        cool_on_offset = tonumber(file.readline())
-        file.close()
-    end
-    if file.open("swing_cool_off.cfg","r") then
-        cool_off_offset = tonumber(file.readline())
-        file.close()
-    end
-    if file.open("swing_heat_on.cfg","r") then
-        heat_on_offset = tonumber(file.readline())
-        file.close()
-    end
-    if file.open("swing_heat_off.cfg","r") then
-        heat_off_offset = tonumber(file.readline())
-        file.close()
-    end
+    set_temp = load_param("temp")
+    therm_mode = load_param("mode")
+    cool_on_offset = load_param("swing_cool_on")
+    cool_off_offset = load_param("swing_cool_off")
+    heat_on_offset = load_param("swing_heat_on")
+    heat_off_offset = load_param("swing_heat_off")
+    
+    --if file.open("temp.cfg","r") then 
+    --    set_temp = tonumber(file.readline())
+    --    file.close()
+    --end
+    --if file.open("mode.cfg","r") then
+    --    therm_mode = tonumber(file.readline())
+    --    file.close()
+    --end
+    --if file.open("swing_cool_on.cfg","r") then
+    --    cool_on_offset = tonumber(file.readline())
+    --    file.close()
+    --end
+    --if file.open("swing_cool_off.cfg","r") then
+    --    cool_off_offset = tonumber(file.readline())
+    --    file.close()
+    --end
+    --if file.open("swing_heat_on.cfg","r") then
+    --    heat_on_offset = tonumber(file.readline())
+    --    file.close()
+    --end
+    --if file.open("swing_heat_off.cfg","r") then
+    --    heat_off_offset = tonumber(file.readline())
+    --    file.close()
+    --end
 end
 
 config_load()
@@ -299,7 +347,7 @@ tmr.create():alarm(4000, tmr.ALARM_AUTO, function()
     data_string = string.format("%.1f",tempF)
     data_string = data_string.."|"..set_temp.."|"..thermostat_state.."|"..tostring(therm_mode).."|"..tostring(fan_state)
     data_string = data_string.."|"..tostring(cool_on_offset).."|"..tostring(cool_off_offset).."|"..tostring(heat_on_offset).."|"..tostring(heat_off_offset)
-    m:publish("home/state/climate/zone3/all",data_string,0,0)
+    m:publish(mqtt_state_path.."/all",data_string,0,0) --"home/state/climate/zone3/all",data_string,0,0)
   else
     mqtt_connect()
   end    
