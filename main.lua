@@ -25,10 +25,10 @@ run_delay = true
 
 output_register_curr = 0x70 --all off
 
-fan_on = 0xEF --bit 4   -----0xBF --bit 6  --0x04 --bit 2 0x08 --bit 3, 0x10 --bit 4
-heat_on = 0xBF --bit 6  -----0xDF --bit 5    ----0x02 -- bit 1
-cool_on = 0xDF --bit 5  -----0xEF --bit 4    ----0x01 -- bit 0
-heat_cool_off = 0x60 --0b0110|0000--bit.bxor(0xFF,bit.band(heat_on,cool_on))
+fan_on = 0xEF --bit 4   
+heat_on = 0xBF --bit 6  
+cool_on = 0xDF --bit 5  
+heat_cool_off = 0x60 
 
 function initI2C()
    local sda = 3 -- GPIO2
@@ -130,6 +130,7 @@ function update_display()
     disp:drawStr(80,8,thermostat_state)
     disp:drawStr(1,32,"Current")
     disp:drawStr(1,40,"  Temp:")
+    disp:drawStr(1,64,zone)
     disp:sendBuffer()
 
 end
@@ -263,50 +264,6 @@ m:on("message", function(client,topic,data)
     --config_save()
 end)
 
---function config_save()
-    --print("Saving config")
-    --print("   therm_mode: " .. therm_mode)
-    --print("   set_temp: " .. set_temp)
-
-    --save_param("mode",therm_mode)
-    --save_param("temp",set_temp)
-    --save_param("swing_cool_on",cool_on_offset)
-    --save_param("swing_cool_off",cool_off_offset)
-    --save_param("swing_heat_on",heat_on_offset)
-    --save_param("swing_heat_off",heat_off_offset)
-    
-    --file.open('mode.cfg',"w+")
-    --file.write(tostring(therm_mode).." ")
-    --file.flush()
-    --file.close()
-    
-    --file.open("temp.cfg","w+")
-    --file.write(tostring(set_temp).." ")
-    --file.flush()
-    --file.close()
-
-    --file.open("swing_cool_on.cfg","w+")
-    --file.write(tostring(cool_on_offset).." ")
-    --file.flush()
-    --file.close()
-
-    --file.open("swing_cool_off.cfg","w+")
-    --file.write(tostring(cool_off_offset).." ")
-    --file.flush()
-    --file.close()
-
-    --file.open("swing_heat_on.cfg","w+")
-    --file.write(tostring(heat_on_offset).." ")
-    --file.flush()
-    --file.close()
-
-    --file.open("swing_heat_off.cfg","w+")
-    --file.write(tostring(heat_off_offset).." ")
-    --file.flush()
-    --file.close()
-    
---end
-
 function config_load()
     set_temp = load_param("temp")
     therm_mode = load_param("mode")
@@ -315,30 +272,6 @@ function config_load()
     heat_on_offset = load_param("swing_heat_on")
     heat_off_offset = load_param("swing_heat_off")
     
-    --if file.open("temp.cfg","r") then 
-    --    set_temp = tonumber(file.readline())
-    --    file.close()
-    --end
-    --if file.open("mode.cfg","r") then
-    --    therm_mode = tonumber(file.readline())
-    --    file.close()
-    --end
-    --if file.open("swing_cool_on.cfg","r") then
-    --    cool_on_offset = tonumber(file.readline())
-    --    file.close()
-    --end
-    --if file.open("swing_cool_off.cfg","r") then
-    --    cool_off_offset = tonumber(file.readline())
-    --    file.close()
-    --end
-    --if file.open("swing_heat_on.cfg","r") then
-    --    heat_on_offset = tonumber(file.readline())
-    --    file.close()
-    --end
-    --if file.open("swing_heat_off.cfg","r") then
-    --    heat_off_offset = tonumber(file.readline())
-    --    file.close()
-    --end
 end
 
 config_load()
