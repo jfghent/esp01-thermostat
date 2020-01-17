@@ -100,21 +100,22 @@ function updateTemp()
     if run_delay then return end
     
     if therm_mode == 0 then --cooling
-        if tempF > (set_temp + cool_on_offset) then
+        if not running and tempF > (set_temp + cool_on_offset) then
             start_cooling()
-        elseif tempF <= (set_temp - cool_off_offset) then
+        elseif running and tempF <= (set_temp - cool_off_offset) then
             stop_cooling()
         end
     elseif therm_mode == 1 then --heating
-        if tempF < (set_temp - heat_on_offset) then
+        if not running and tempF < (set_temp - heat_on_offset) then
             start_heating()
-         elseif tempF >= (set_temp + heat_off_offset) then
+         elseif running and tempF >= (set_temp + heat_off_offset) then
             stop_heating()
         end
     else
         thermostat_state = "Wait"
         output_register_curr = bit.bor(output_register_curr,heat_cool_off)
         write_pcf8574(output_register_curr)
+        running = false
     end
 
 end
