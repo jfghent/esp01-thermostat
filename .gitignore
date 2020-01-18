@@ -7,3 +7,9 @@
 /swing_heat_off.par
 /swing_heat_on.par
 /temp.par
+/bright.par
+/ctemp.par
+/htemp.par
+/hw.lua
+/lcd.lua
+/nodemcu-master-11-modules-2020-01-18-05-44-54-float.bin
