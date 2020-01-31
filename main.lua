@@ -1,14 +1,15 @@
 require("mcp9808")
 require("param")
---require("lcd")
+require("lcd")
 
+print(node.heap())
 
-zone = 3
+zone = 1
 --mqtt_host = "192.168.1.46"
 --mqtt_port = 1885
 
-mqtt_cmd_path = "home/command/climate/zone3" --..zone
-mqtt_state_path = "home/state/climate/zone3" --..zone
+mqtt_cmd_path = "home/command/climate/zone"..zone
+mqtt_state_path = "home/state/climate/zone"..zone
 
 m = mqtt.Client("ThermostatZone"..zone,120)
 
@@ -25,7 +26,7 @@ off_offset = 2.0
 --tempF = 0
 --tempC = 0
 run_delay = true
-tmr_delay = 1000 --60000
+tmr_delay = 60000
 
 output_register_curr = 0x70 --all off --TODO: Read from PFC directly?
 
@@ -35,6 +36,7 @@ fan_on = 0xEF --bit 4
 --heat_cool_off = 0x60
 running = false
 
+print(node.heap())
 
 function initI2C()
    local sda = 3 -- GPIO2
@@ -48,23 +50,26 @@ function start_run_delay()
     run_delay = true
     tmr.create():alarm(tmr_delay, tmr.ALARM_SINGLE, function()
         run_delay = false
+        lcd.cycle_state("")
         --cycle_state = ""
     end)
-    --lcd.cycle_state("DLY")
+    lcd.cycle_state("DLY")
 end
 
 function start_cycle(type)
     output_register_curr = bit.band(output_register_curr,type)
     write_pcf8574(output_register_curr)
-    --lcd.cycle_state("ON")
+    lcd.cycle_state("ON")
     running = true
 end
 
 function stop_cycle()
     set_heat_cool_off()
-    start_run_delay()
-    --cycle_state = ""
-    --lcd.cycle_state("")
+    if running then 
+        start_run_delay() 
+    elseif not run_delay then
+        lcd.cycle_state("")    
+    end
     running = false
 end
 
@@ -74,12 +79,11 @@ function set_heat_cool_off()
     --print("output_register_curr: "..string.format("%02d",output_register_curr))
     write_pcf8574(output_register_curr)
     --print("IO write complete")
-    running = false
 end
 
 function set_therm_mode(tm)
     --print("turning everything off")
-    set_heat_cool_off()
+    stop_cycle()
     if tm == 0 then
         print("going to cool mode")
         therm_mode = tm
@@ -87,7 +91,7 @@ function set_therm_mode(tm)
         on_offset = tonumber(param.load("swing_cool_on"))
         off_offset = tonumber(param.load("swing_cool_off"))
         --thermostat_state = "Cool"
-        --lcd.therm_state("Cool")
+        lcd.therm_state("Cool")
     elseif tm == 1 then
         print("going to heat mode")
         therm_mode = tm
@@ -95,12 +99,12 @@ function set_therm_mode(tm)
         on_offset = tonumber(param.load("swing_heat_on"))
         off_offset = tonumber(param.load("swing_heat_off"))
         --thermostat_state = "Heat"
-        --lcd.therm_state("Heat")
+        lcd.therm_state("Heat")
     else
-        print("invalid therm mode")
+        --print("invalid therm mode")
         therm_mode = -1
        --thermostat_state = "Idle"
-       --lcd.therm_state("Idle")
+       lcd.therm_state("Idle")
     end
     param.save("mode",tostring(therm_mode))
     --print("therm_mode = " .. tostring(therm_mode))
@@ -111,7 +115,7 @@ function updateTemp()
     local tempC = mcp9808.read_temperature()
     --convert to F
     local tempF = tempC * 1.8 + 32
-    --lcd.curr_temp(tempF)
+    lcd.curr_temp(tempF)
     
     if therm_mode == 0 then --cooling
         if not running and not run_delay and tempF > (set_temp + on_offset) then
@@ -155,6 +159,7 @@ function mqtt_connect()
         function(client) 
             --print("mqtt connected")
             mqtt_connected = true
+            lcd.wifi_state("W")
             client:subscribe(mqtt_cmd_path.."/#", 0, 
                 function(client) 
                     --lcd.wifi_state("W")
@@ -174,9 +179,9 @@ function mqtt_connect()
 end
 
 function set_temperature(df)
-    --print("df = " .. df)
+    print("df = " .. df)
     set_temp = tonumber(df)
-    --print("set_temp = " .. string.format("%02d",set_temp))
+    print("set_temp = " .. string.format("%02d",set_temp))
     if therm_mode == 0 then
             --cool_temp = set_temp
        param.save("ctemp",df)
@@ -184,12 +189,14 @@ function set_temperature(df)
           --heat_temp = set_temp
        param.save("htemp",df)
     end 
-  --lcd.set_temp(df)
+    lcd.set_temp(df)
 end
 
---m:on("connect", function(client) print("mqtt connected_") end)
+m:on("connect", function(client)
+    lcd.wifi_state("W")
+    end)
 m:on("offline", function(client) 
-    --lcd.wifi_state("i")
+    lcd.wifi_state("w")
     --print("mqtt offline") 
     mqtt_connected = false 
     end)
@@ -210,11 +217,11 @@ m:on("message", function(client,topic,data)
         elseif data == "heat" then
            set_therm_mode(1)
         else
-            set_therm_mode(-1)
+           set_therm_mode(-1)
         end
-    --elseif topic==mqtt_cmd_path.."/display_brightness" then
-        --disp:setContrast(tonumber(data))
-        --save_param("bright",data)
+    elseif topic==mqtt_cmd_path.."/display_brightness" then
+        disp:setContrast(tonumber(data))
+        save_param("bright",data)
     --elseif topic==mqtt_cmd_path.."/fan" then
       --print("output register 1:" .. output_register_curr)
       --if data == "on" then
@@ -258,41 +265,60 @@ station_cfg.pwd = param.load("pwd")
 print("pw: " .. station_cfg.pwd)
 station_cfg.auto=true
 station_cfg.save=false
---station_cfg.connected_cb=function() end 
+station_cfg.connected_cb=function() 
+    lcd.wifi_state("w")
+    end 
+station_cfg.disconnected_cb=function()
+    lcd.wifi_state("X")
+    end
 station_cfg.got_ip_cb=function() 
         --wifi_state = "i"
-        --lcd.wifi_state("i")
+        lcd.wifi_state("w")
         --update_display()
         print("Got IP")
         mqtt_connect()
         
     end
-
+print(node.heap())
 initI2C()
+
+print(node.heap())
+
+lcd.init(zone,255) --local brt = load_param("bright")
+lcd.therm_state("Boot")
+lcd.wifi_state("X")
+lcd.curr_temp("00")
+
+print(node.heap())
+
 config_load()
+
 --initDisplay()
 --update_display()
---lcd.init(zone)
---lcd.therm_state("Boot")
---lcd.wifi_state("X")
+print(node.heap())
 
 wifi.sta.disconnect()
 wifi.setmode(wifi.STATION)
 wifi.sta.config(station_cfg)
 
+print(node.heap())
+
 start_run_delay()
 --run_delay = false --TEMPORARY DEBUG - REMOVE WHEN start_run_delay() is reinstated
 
+print(node.heap())
+
 tmr.create():alarm(4000, tmr.ALARM_AUTO, function()
   --lcd.update()
+  print(node.heap())
   local tempF = updateTemp()
   if mqtt_connected then
     local data_string = string.format("%.1f",tempF)
-    data_string = data_string.."|"..string.format("%02d",set_temp).."|ERROR|"..tostring(therm_mode).."|ERROR" --..tostring(fan_state)
+    data_string = data_string.."|"..string.format("%02d",set_temp).."|"..tostring(therm_mode).."|FAN_STATE" --..tostring(fan_state)
     data_string = data_string.."|"..tostring(cool_on_offset).."|"..tostring(cool_off_offset).."|"..tostring(heat_on_offset).."|"..tostring(heat_off_offset)
     m:publish(mqtt_state_path.."/all",data_string,0,0) --"home/state/climate/zone3/all",data_string,0,0)
   else
     mqtt_connect()
-  end    
+  end
   --print("Hi")
 end)
