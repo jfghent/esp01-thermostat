@@ -28,9 +28,9 @@ off_offset = 2.0
 run_delay = true
 tmr_delay = 60000
 
-output_register_curr = 0x70 --all off --TODO: Read from PFC directly?
+output_register_curr = 0x07 --all off --TODO: Read from PFC directly?
 
-fan_on = 0xEF --bit 4   
+fan_on = 0xFE --bit 0   
 --heat_on = 0xBF --bit 6  
 --cool_on = 0xDF --bit 5  
 --heat_cool_off = 0x60
@@ -43,8 +43,6 @@ function initI2C()
    local scl = 4 -- GPIO0
    i2c.setup(0, sda, scl, i2c.SLOW)
 end
-
-
 
 function start_run_delay()
     run_delay = true
@@ -75,7 +73,7 @@ end
 
 function set_heat_cool_off()
     --print("output_register_curr: "..string.format("%02d",output_register_curr))
-    output_register_curr = bit.bor(output_register_curr,0x60)
+    output_register_curr = bit.bor(output_register_curr,0x06) --0b0000 0110 
     --print("output_register_curr: "..string.format("%02d",output_register_curr))
     write_pcf8574(output_register_curr)
     --print("IO write complete")
@@ -119,13 +117,13 @@ function updateTemp()
     
     if therm_mode == 0 then --cooling
         if not running and not run_delay and tempF > (set_temp + on_offset) then
-            start_cycle(0xDF)--cool_on)
+            start_cycle(0xFD)--cool_on) --0b1111 1101
         elseif running and tempF <= (set_temp - off_offset) then
             stop_cycle()
         end
     elseif therm_mode == 1 then --heating
         if not running and not run_delay and tempF < (set_temp - on_offset) then
-            start_cycle(0xBF)--heat_on)
+            start_cycle(0xFB)--heat_on) --0b1111 1011
         elseif running and tempF >= (set_temp + off_offset) then
             stop_cycle()
         end
